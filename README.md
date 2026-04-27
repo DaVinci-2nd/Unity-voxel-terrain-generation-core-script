@@ -227,9 +227,12 @@ int sz = Mathf.Clamp(Mathf.RoundToInt((p.z - sourceOrigin.z) / sourceStep), 0, s
 
 ## 性能问题
 
-- 当前脚本会有性能问题。
-- 初次生成虽然放到了线程里，运行时挖坑、填土、同步区块时，还是会整块重建网格、法线、切线和碰撞体。
-- 区块数量一多，或者短时间内连续修改地形，就容易出现卡顿、掉帧和碰撞刷新开销偏大的情况。
+- `BuildMeshFromDensity()` 会从头扫描整个区块体素，并且每个立方体都会继续拆成 6 个四面体去跑一遍组面流程。区块分辨率一上来，这一段就是最重的 CPU 开销。
+- `ApplyMeshData()` 每次都会重新写入整份 `vertices` 和 `triangles`，然后再跑 `mesh.RecalculateBounds()`、`mesh.RecalculateNormals()`、`mesh.RecalculateTangents()`。这几步都属于整块重算，不是局部更新。
+- `AddMeshColliderAndSetMesh()` 会把 `meshCollider.sharedMesh` 先清空再重新赋值。这会让碰撞网格整块刷新，运行时频繁改地形时开销会比较明显。
+- `ApplyDensitySphere()`、`AddDensitySphere()`、`SyncDensityFromSource()` 这 3 个入口在数据改完以后，都会直接调用 `BuildMeshFromDensity()` 和 `ApplyMeshData()`。也就是每次修改一次地形，都会触发一次整块重建。
+- `SyncDensityFromSource()` 会把目标区块的每一个密度点都重新映射一遍源区块数据。LOD 区块一多时，这一步会把同步成本继续放大。
+- `TerrainChunkRelay` 在高精度源区块改动后，还会继续遍历 `linkedChunks` 逐个同步。连锁同步一多时，单次编辑可能带出多块一起重建。
 
 ## 已知限制
 
